@@ -1,57 +1,46 @@
 import streamlit as st
-import easyocr
 from PIL import Image
+import pytesseract
 import numpy as np
 
 st.title("Food Sticker Ingredient Scanner")
 
 unhealthy_ingredients = {
-    "E102": "Tartrazine / Тартразин - Artificial color",
-    "E104": "Quinoline Yellow - Artificial dye",
-    "E110": "Sunset Yellow / Жълто залез",
-    "E122": "Carmoisine - Synthetic dye",
-    "E124": "Ponceau 4R / Понсо 4R",
-    "E129": "Allura Red - Artificial dye",
-    "E202": "Potassium Sorbate - Preservative",
-    "E211": "Sodium Benzoate / Натриев бензоат",
-    "E250": "Sodium Nitrite / Натриев нитрит",
-    "E251": "Sodium Nitrate - Preservative",
-    "E320": "BHA - Controversial preservative",
-    "E321": "BHT - Controversial preservative",
-    "E621": "MSG / Мононатриев глутамат",
+    "E102": "Tartrazine / Artificial color",
+    "E104": "Quinoline Yellow",
+    "E110": "Sunset Yellow",
+    "E122": "Carmoisine",
+    "E124": "Ponceau 4R",
+    "E129": "Allura Red",
+    "E202": "Potassium Sorbate",
+    "E211": "Sodium Benzoate",
+    "E250": "Sodium Nitrite",
+    "E320": "BHA preservative",
+    "E321": "BHT preservative",
+    "E621": "MSG flavor enhancer",
     "aspartame": "Artificial sweetener",
     "sucralose": "Artificial sweetener",
-    "high fructose corn syrup": "Processed sweetener",
-    "palm oil": "Highly processed fat",
-    "maltodextrin": "Highly processed additive",
-    "artificial flavor": "Artificial flavoring",
-    "red 40": "Artificial food dye",
-    "yellow 5": "Artificial food dye",
-    "аспартам": "Изкуствен подсладител",
-    "палмово масло": "Силно преработена мазнина",
-    "мононатриев глутамат": "MSG flavor enhancer",
+    "palm oil": "Processed fat",
+    "maltodextrin": "Processed additive",
+    "red 40": "Artificial dye",
+    "yellow 5": "Artificial dye",
 }
 
-@st.cache_resource
-def load_reader():
-    return easyocr.Reader(['en', 'bg'])
-
-reader = load_reader()
-
-uploaded_file = st.file_uploader("Upload food label image", type=["png", "jpg", "jpeg"])
+uploaded_file = st.file_uploader(
+    "Upload food label image",
+    type=["png", "jpg", "jpeg"]
+)
 
 if uploaded_file:
 
     image = Image.open(uploaded_file)
+
     st.image(image, caption="Uploaded Label", use_container_width=True)
 
-    img_array = np.array(image)
+    st.write("Reading text...")
 
-    st.write("Reading ingredients...")
-
-    result = reader.readtext(img_array)
-
-    extracted_text = " ".join([item[1] for item in result])
+    # OCR with Tesseract
+    extracted_text = pytesseract.image_to_string(image)
 
     st.subheader("Detected Text")
     st.write(extracted_text)
