@@ -149,3 +149,8 @@ if uploaded_file:
         st.success(
             "No flagged ingredients detected."
         )
+        @st.cache_resource
+def load_reader():
+    return easyocr.Reader(['en', 'bg'])
+
+reader = load_reader()
