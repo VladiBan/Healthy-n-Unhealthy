@@ -269,11 +269,24 @@ div[data-testid="column"] { padding: 0 0.5rem; }
 
 @st.cache_resource(show_spinner=False)
 def load_ocr_reader():
-    return easyocr.Reader(['en'], gpu=False)
+    # 'en' covers all Latin-script languages (DE, FR, ES, IT, NL, PL, RO, HR, TR, etc.)
+    # 'bg' + 'ru' add Cyrillic — they share one model so overhead is minimal
+    # model_storage_directory persists the download across Streamlit Cloud restarts
+    import os
+    model_dir = os.path.join(os.path.expanduser("~"), ".EasyOCR")
+    os.makedirs(model_dir, exist_ok=True)
+    return easyocr.Reader(['en', 'bg', 'ru'], gpu=False, verbose=False,
+                          model_storage_directory=model_dir)
 
 
 def run_ocr(image: Image.Image) -> str:
     reader = load_ocr_reader()
+    # Resize if image is huge — reduces memory spike during inference
+    max_dim = 2000
+    w, h = image.size
+    if max(w, h) > max_dim:
+        scale = max_dim / max(w, h)
+        image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
     img_array = np.array(image.convert("RGB"))
     results = reader.readtext(img_array, detail=0, paragraph=True)
     return " ".join(results)
@@ -358,7 +371,7 @@ if uploaded_file:
     col_img, col_btn = st.columns([3, 1])
 
     with col_img:
-        st.image(image, caption="Uploaded label", use_container_width=True)
+        st.image(image, caption="Uploaded label", width="stretch")
 
     with col_btn:
         st.markdown("<br><br>", unsafe_allow_html=True)
