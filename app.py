@@ -2,10 +2,10 @@ import streamlit as st
 import easyocr
 import numpy as np
 from PIL import Image
-import anthropic
-import io
+import google.generativeai as genai
 import json
 import re
+import os
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -293,10 +293,16 @@ def run_ocr(image: Image.Image) -> str:
 
 
 def analyze_ingredients(raw_text: str) -> dict:
-    client = anthropic.Anthropic()
+    api_key = st.secrets.get("GEMINI_API_KEY") or os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        st.error("GEMINI_API_KEY not found. Add it to your Streamlit secrets.")
+        st.stop()
 
-    prompt = f"""You are an expert nutritionist and food-safety researcher. 
-The text below was extracted via OCR from a product label photograph. 
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+
+    prompt = f"""You are an expert nutritionist and food-safety researcher.
+The text below was extracted via OCR from a product label photograph.
 Identify every ingredient or additive mentioned, then for each one rate how harmful it is.
 
 OCR TEXT:
@@ -326,14 +332,8 @@ Rules:
 - If no clear ingredients are found, return an empty ingredients array and explain in overall_verdict.
 """
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    raw = message.content[0].text.strip()
-    # strip possible ```json fences
+    response = model.generate_content(prompt)
+    raw = response.text.strip()
     raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"```$", "", raw).strip()
     return json.loads(raw)
@@ -394,7 +394,7 @@ if uploaded_file:
         st.markdown(f'<div class="ocr-box">{ocr_text}</div>', unsafe_allow_html=True)
 
         # Step 2 – AI analysis
-        with st.spinner("Analysing ingredients with Claude…"):
+        with st.spinner("Analysing ingredients with Gemini AI…"):
             try:
                 result = analyze_ingredients(ocr_text)
             except json.JSONDecodeError:
