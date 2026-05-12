@@ -2,7 +2,7 @@ import streamlit as st
 import easyocr
 import numpy as np
 from PIL import Image
-import google.generativeai as genai
+from google import genai
 import json
 import re
 import os
@@ -298,8 +298,7 @@ def analyze_ingredients(raw_text: str) -> dict:
         st.error("GEMINI_API_KEY not found. Add it to your Streamlit secrets.")
         st.stop()
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    client = genai.Client(api_key=api_key)
 
     prompt = f"""You are an expert nutritionist and food-safety researcher.
 The text below was extracted via OCR from a product label photograph.
@@ -334,7 +333,7 @@ Rules:
 - For mineral water or similar products, flag high fluoride (F- above 1.5 mg/L), high sodium, or very high/low pH as WARNING or DANGER where appropriate.
 """
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
     raw = response.text.strip()
     raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"```$", "", raw).strip()
