@@ -299,7 +299,7 @@ def analyze_ingredients(raw_text: str) -> dict:
         st.stop()
 
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
 
     prompt = f"""You are an expert nutritionist and food-safety researcher.
 The text below was extracted via OCR from a product label photograph.
@@ -330,6 +330,8 @@ Rules:
 - SAFE = generally recognised as safe
 - Be factual and cite the mechanism (e.g. "linked to liver toxicity", "may spike blood sugar")
 - If no clear ingredients are found, return an empty ingredients array and explain in overall_verdict.
+- The OCR text may be noisy or garbled — do your best to interpret it. For mineral water, treat the chemical composition (Na+, K+, Ca2+, F-, Cl-, SO4, HCO3 etc.) as the "ingredients".
+- For mineral water or similar products, flag high fluoride (F- above 1.5 mg/L), high sodium, or very high/low pH as WARNING or DANGER where appropriate.
 """
 
     response = model.generate_content(prompt)
