@@ -1,0 +1,5 @@
+tesseract-ocr
+tesseract-ocr-bul
+tesseract-ocr-rus
+tesseract-ocr-deu
+tesseract-ocr-fra
