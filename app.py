@@ -1,216 +1,438 @@
-import streamlit as st
-from PIL import Image
-import numpy as np
-import cv2
 import re
 
-# ─────────────────────────────────────────────────────────────
+import cv2
+import easyocr
+import numpy as np
+import streamlit as st
+from PIL import Image
+from rapidfuzz import fuzz
+
+# ==========================================
 # PAGE CONFIG
-# ─────────────────────────────────────────────────────────────
+# ==========================================
+
 st.set_page_config(
-    page_title="IngredientIQ",
-    page_icon="🔬",
-    layout="wide",
-    initial_sidebar_state="collapsed"
+    page_title="AI Ingredient Scanner",
+    page_icon="🧪",
+    layout="centered"
 )
 
-# ─────────────────────────────────────────────────────────────
-# EASYOCR READER — cached so it only loads once
-# ─────────────────────────────────────────────────────────────
+# ==========================================
+# LOAD OCR
+# ==========================================
+
 @st.cache_resource
 def load_reader():
-    import easyocr
-    return easyocr.Reader(['en', 'bg'], gpu=False)
+    return easyocr.Reader(["bg", "en"], gpu=False)
 
-# ─────────────────────────────────────────────────────────────
+reader = load_reader()
+
+# ==========================================
 # DATABASE
-# ─────────────────────────────────────────────────────────────
-INGREDIENT_DB = [
-    {
-        "name": "Fluoride (F⁻)",
-        "risk_level": "DANGER",
-        "aliases": ["fluoride", "fluor", "флуорид", "флуор", "f-"],
-        "reason": "Above 1.5 mg/L may cause fluorosis and neurological harm. Not suitable for infants."
+# ==========================================
+
+INGREDIENT_DATABASE = {
+    # SWEETENERS
+    "E950": {
+        "en": "Acesulfame K",
+        "bg": "Ацесулфам К",
+        "risk": 3,
+        "category": "Sweetener",
+        "info": "Artificial sweetener",
+        "aliases": ["e950", "acesulfame k", "ацесулфам", "ацесулфам к"]
     },
-    {
-        "name": "High pH / Very Alkaline",
-        "risk_level": "WARNING",
-        "aliases": [
-            "ph 8", "ph 9", "ph 10", "рн 8", "рн 9", "рн 10",
-            "ph9", "ph 9.3", "ph 9.37"
-        ],
-        "reason": "Very alkaline water may reduce stomach acidity and affect digestion."
+    "E951": {
+        "en": "Aspartame",
+        "bg": "Аспартам",
+        "risk": 3,
+        "category": "Sweetener",
+        "info": "Artificial sweetener",
+        "aliases": ["e951", "aspartame", "аспартам"]
+    },
+    "E955": {
+        "en": "Sucralose",
+        "bg": "Сукралоза",
+        "risk": 3,
+        "category": "Sweetener",
+        "info": "Artificial sweetener",
+        "aliases": ["e955", "sucralose", "сукралоза"]
     },
 
+    # FLAVOR ENHANCERS
+    "E621": {
+        "en": "Monosodium Glutamate",
+        "bg": "Мононатриев глутамат",
+        "risk": 2,
+        "category": "Flavor Enhancer",
+        "info": "Flavor enhancer",
+        "aliases": ["e621", "msg", "monosodium glutamate", "мононатриев глутамат"]
+    },
 
-    
-    {
-        "name": "Sodium / High Sodium (Na⁺)",
-        "risk_level": "WARNING",
-        "aliases": ["sodium", "na+", "натрий"],
-        "reason": "Excess sodium intake increases blood pressure and cardiovascular risk."
+    # PRESERVATIVES
+    "E210": {
+        "en": "Benzoic Acid",
+        "bg": "Бензоена киселина",
+        "risk": 2,
+        "category": "Preservative",
+        "info": "May cause allergic reactions",
+        "aliases": ["e210", "benzoic acid", "бензоена киселина"]
     },
-    {
-        "name": "Calcium (Ca²⁺)",
-        "risk_level": "SAFE",
-        "aliases": ["calcium", "ca2+", "калций"],
-        "reason": "Essential mineral supporting bones and muscle function."
+    "E220": {
+        "en": "Sulfur Dioxide",
+        "bg": "Серен диоксид",
+        "risk": 3,
+        "category": "Preservative",
+        "info": "May trigger asthma reactions",
+        "aliases": ["e220", "sulfur dioxide", "серен диоксид"]
     },
-    {
-        "name": "Potassium (K⁺)",
-        "risk_level": "SAFE",
-        "aliases": ["potassium", "k+", "калий"],
-        "reason": "Important electrolyte for heart and nerve function."
+    "E250": {
+        "en": "Sodium Nitrite",
+        "bg": "Натриев нитрит",
+        "risk": 3,
+        "category": "Preservative",
+        "info": "Linked to cancer risk",
+        "aliases": ["e250", "sodium nitrite", "натриев нитрит"]
     },
-    {
-        "name": "Bicarbonate / HCO₃⁻",
-        "risk_level": "SAFE",
-        "aliases": ["hco3", "bicarbonate", "бикарбонат"],
-        "reason": "Natural mineral buffer found in mineral water."
+
+    # ANTIOXIDANTS
+    "E320": {
+        "en": "BHA",
+        "bg": "BHA",
+        "risk": 3,
+        "category": "Antioxidant",
+        "info": "Possible carcinogen",
+        "aliases": ["e320", "bha"]
     },
-    {
-        "name": "Chloride (Cl⁻)",
-        "risk_level": "SAFE",
-        "aliases": ["chloride", "cl-", "хлорид"],
-        "reason": "Essential electrolyte supporting hydration."
-    },
-    {
-        "name": "Sulphate (SO₄²⁻)",
-        "risk_level": "SAFE",
-        "aliases": ["sulphate", "sulfate", "so4", "сулфат"],
-        "reason": "Naturally occurring mineral ion."
-    },
-    {
-        "name": "Zinc (Zn)",
-        "risk_level": "SAFE",
-        "aliases": ["zinc", "zn", "цинк"],
-        "reason": "Essential trace mineral supporting immunity."
+    "E321": {
+        "en": "BHT",
+        "bg": "BHT",
+        "risk": 3,
+        "category": "Antioxidant",
+        "info": "Linked to hormonal issues",
+        "aliases": ["e321", "bht"]
     }
+}
+
+HARMFUL_INGREDIENTS = {
+    "sugar": {
+        "risk": 3,
+        "info": "High sugar intake may lead to obesity and diabetes"
+    },
+    "захар": {
+        "risk": 3,
+        "info": "Високият прием може да доведе до диабет"
+    },
+    "palm oil": {
+        "risk": 2,
+        "info": "May increase LDL cholesterol"
+    },
+    "палмово масло": {
+        "risk": 2,
+        "info": "Повишава LDL холестерола"
+    },
+    "glucose-fructose syrup": {
+        "risk": 3,
+        "info": "May disrupt metabolism"
+    },
+    "глюкозо-фруктозен сироп": {
+        "risk": 3,
+        "info": "Нарушава метаболизма"
+    },
+    "caffeine": {
+        "risk": 2,
+        "info": "High caffeine intake may affect sleep and heart rate"
+    },
+    "кофеин": {
+        "risk": 2,
+        "info": "Високият прием може да повлияе съня и сърдечния ритъм"
+    },
+    "taurine": {
+        "risk": 1,
+        "info": "Commonly found in energy drinks"
+    },
+    "таурин": {
+        "risk": 1,
+        "info": "Често се среща в енергийни напитки"
+    }
+}
+
+ALLERGENS = [
+    "milk", "мляко",
+    "gluten", "глутен",
+    "soy", "соя",
+    "eggs", "яйца",
+    "peanuts", "фъстъци",
+    "nuts", "ядки",
+    "fish", "риба"
 ]
 
-# ─────────────────────────────────────────────────────────────
-# OCR
-# ─────────────────────────────────────────────────────────────
-def preprocess_image(image: Image.Image):
-    img = np.array(image.convert("RGB"))
+# ==========================================
+# IMAGE PREPROCESSING
+# ==========================================
 
-    scale = 2
-    img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+def preprocess_image(image):
+    img = np.array(image)
 
-    h, w = img.shape[:2]
-    x1, x2 = int(w * 0.15), int(w * 0.88)
-    y1, y2 = int(h * 0.08), int(h * 0.78)
-    img = img[y1:y2, x1:x2]
+    # Handle RGBA / grayscale safely
+    if len(img.shape) == 2:
+        gray = img
+    elif img.shape[2] == 4:
+        gray = cv2.cvtColor(img, cv2.COLOR_RGBA2GRAY)
+    else:
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
 
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    gray = cv2.equalizeHist(gray)
+    # Upscale for better OCR
+    gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
 
-    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
-    gray = cv2.filter2D(gray, -1, kernel)
-    gray = cv2.GaussianBlur(gray, (3, 3), 0)
+    # Blur
+    blur = cv2.GaussianBlur(gray, (3, 3), 0)
 
+    # Threshold
     thresh = cv2.adaptiveThreshold(
-        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+        blur,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        11,
+        2
     )
+
     return thresh
 
+# ==========================================
+# NORMALIZATION
+# ==========================================
 
-def run_ocr(image: Image.Image):
-    reader = load_reader()
-    processed = preprocess_image(image)
-    results = reader.readtext(processed, detail=0, paragraph=True)
-    return "\n".join(results)
+def normalize_text(text):
+    text = text.lower()
 
+    replacements = {
+        "0": "o",
+        "1": "i",
+        "|": "i"
+    }
 
-# ─────────────────────────────────────────────────────────────
-# MATCH INGREDIENTS
-# ─────────────────────────────────────────────────────────────
-def match_ingredients(ocr_text):
-    text_lower = ocr_text.lower()
-    found = []
-    seen = set()
+    for wrong, correct in replacements.items():
+        text = text.replace(wrong, correct)
 
-    for entry in INGREDIENT_DB:
-        for alias in entry["aliases"]:
-            if alias.lower() in text_lower:
-                if entry["name"] not in seen:
-                    found.append(entry)
-                    seen.add(entry["name"])
+    return text
 
-    fluoride_match = re.search(r"f[^\d]{0,10}(\d+[\.,]?\d*)", text_lower)
-    if fluoride_match:
-        value = float(fluoride_match.group(1).replace(",", "."))
-        if value > 1.5 and "Fluoride (F⁻)" not in seen:
-            for item in INGREDIENT_DB:
-                if item["name"] == "Fluoride (F⁻)":
-                    found.append(item)
+def normalize_e_number(e):
+    e = e.upper()
+    e = e.replace(" ", "").replace("-", "").replace(".", "").replace(":", "")
+    e = e.replace("O", "0").replace("I", "1").replace("Z", "2")
+    return e
 
-    ph_match = re.search(r"ph\s*(\d+[\.,]?\d*)", text_lower)
-    if ph_match:
-        value = float(ph_match.group(1).replace(",", "."))
-        if value >= 8.5 and "High pH / Very Alkaline" not in seen:
-            for item in INGREDIENT_DB:
-                if item["name"] == "High pH / Very Alkaline":
-                    found.append(item)
+# ==========================================
+# DETECTION HELPERS
+# ==========================================
 
-    return found
+def detect_e_numbers(text):
+    found = set()
+    e_matches = re.findall(r"[Ee][\s\-\.:]?\d{3}", text)
 
+    for e in e_matches:
+        e_clean = normalize_e_number(e)
+        if e_clean in INGREDIENT_DATABASE:
+            found.add(e_clean)
 
-# ─────────────────────────────────────────────────────────────
-# SCORE
-# ─────────────────────────────────────────────────────────────
-def overall_score(ingredients):
-    if not ingredients:
-        return 70
-    danger = sum(1 for i in ingredients if i["risk_level"] == "DANGER")
-    warning = sum(1 for i in ingredients if i["risk_level"] == "WARNING")
-    return max(0, min(100, 100 - danger * 25 - warning * 10))
+    return list(found)
 
+def detect_ingredients(text):
+    text = normalize_text(text)
+    found = set()
 
-def score_color(score):
-    if score >= 70:
-        return "#3cdc78"
-    elif score >= 40:
-        return "#ffb400"
-    return "#ff6b6b"
+    # detect E-numbers first
+    for item in detect_e_numbers(text):
+        found.add(item)
 
+    # split text into smaller chunks
+    words = re.split(r"[,;\n()]+", text)
 
-# ─────────────────────────────────────────────────────────────
+    for code, data in INGREDIENT_DATABASE.items():
+        for alias in data["aliases"]:
+            alias = alias.lower().strip()
+
+            for word in words:
+                word = word.strip().lower()
+                if not word:
+                    continue
+
+                if alias in word:
+                    found.add(code)
+                    break
+
+                if fuzz.ratio(alias, word) > 85:
+                    found.add(code)
+                    break
+
+    return list(found)
+
+def detect_harmful(text):
+    text = normalize_text(text)
+    found = set()
+    words = re.split(r"[,;\n()]+", text)
+
+    for ingredient in HARMFUL_INGREDIENTS:
+        ingredient_lower = ingredient.lower()
+
+        for word in words:
+            word = word.strip().lower()
+            if not word:
+                continue
+
+            if ingredient_lower in word:
+                found.add(ingredient)
+                break
+
+            if fuzz.ratio(ingredient_lower, word) > 85:
+                found.add(ingredient)
+                break
+
+    return list(found)
+
+def detect_allergens(text):
+    text = normalize_text(text)
+    found = set()
+    words = re.split(r"[,;\n()]+", text)
+
+    for allergen in ALLERGENS:
+        allergen_lower = allergen.lower()
+
+        for word in words:
+            word = word.strip().lower()
+            if not word:
+                continue
+
+            if allergen_lower in word:
+                found.add(allergen)
+                break
+
+            if fuzz.ratio(allergen_lower, word) > 85:
+                found.add(allergen)
+                break
+
+    return list(found)
+
+# ==========================================
+# SCORING
+# ==========================================
+
+def calculate_score(found_items, harmful_items):
+    total = 0
+
+    for item in found_items:
+        total += INGREDIENT_DATABASE[item]["risk"]
+
+    for item in harmful_items:
+        total += HARMFUL_INGREDIENTS[item]["risk"]
+
+    return total
+
+def get_health_label(score):
+    if score == 0:
+        return "🟢 Healthy"
+    elif score <= 4:
+        return "🟡 Moderate"
+    return "🔴 Unhealthy"
+
+def risk_color(risk):
+    if risk == 1:
+        return "🟢"
+    elif risk == 2:
+        return "🟡"
+    return "🔴"
+
+# ==========================================
 # UI
-# ─────────────────────────────────────────────────────────────
-st.title("🔬 IngredientIQ")
-st.write("Upload a product label and analyse ingredients.")
+# ==========================================
 
-uploaded_file = st.file_uploader("Upload image", type=["jpg", "jpeg", "png", "webp"])
+def main():
+    st.title("🧪 AI Ingredient Scanner")
 
-if uploaded_file:
+    st.markdown(
+        """
+Upload a food label image to detect:
+- Harmful ingredients
+- E-numbers
+- Allergens
+- Artificial sweeteners
+        """
+    )
+
+    uploaded_file = st.file_uploader(
+        "📤 Upload image",
+        type=["jpg", "jpeg", "png"]
+    )
+
+    if not uploaded_file:
+        return
+
     image = Image.open(uploaded_file)
     st.image(image, caption="Uploaded Image", use_container_width=True)
 
-    if st.button("Analyse Ingredients"):
-        with st.spinner("Reading label..."):
-            ocr_text = run_ocr(image)
+    st.write("🔍 Processing image...")
 
-        st.subheader("Extracted Text")
-        st.text_area("", ocr_text, height=250)
+    try:
+        processed = preprocess_image(image)
+        results = reader.readtext(processed, detail=0, paragraph=True)
+        extracted_text = " ".join(results)
+    except Exception as e:
+        st.error(f"OCR failed: {e}")
+        return
 
-        matched = match_ingredients(ocr_text)
-        score = overall_score(matched)
-        color = score_color(score)
+    st.subheader("📄 Extracted Text")
+    st.text_area("OCR Result", extracted_text, height=200)
 
-        st.markdown(
-            f"<h1 style='color:{color};'>{score}/100</h1>",
-            unsafe_allow_html=True
-        )
+    found_ingredients = detect_ingredients(extracted_text)
+    harmful_found = detect_harmful(extracted_text)
+    allergens_found = detect_allergens(extracted_text)
 
-        if matched:
-            st.subheader("Detected Ingredients")
-            for item in matched:
-                if item["risk_level"] == "DANGER":
-                    st.error(f"{item['name']}\n\n{item['reason']}")
-                elif item["risk_level"] == "WARNING":
-                    st.warning(f"{item['name']}\n\n{item['reason']}")
-                else:
-                    st.success(f"{item['name']}\n\n{item['reason']}")
-        else:
-            st.info("No known ingredients detected.")
+    score = calculate_score(found_ingredients, harmful_found)
+    label = get_health_label(score)
+
+    st.subheader("🧪 Analysis")
+    st.markdown(f"## {label}")
+    st.markdown(f"### Health Score: {score}")
+
+    if found_ingredients:
+        st.subheader("⚠️ Detected Additives")
+        for item in sorted(found_ingredients):
+            data = INGREDIENT_DATABASE[item]
+            color = risk_color(data["risk"])
+            st.markdown(
+                f"""
+{color} **{item} — {data['en']}**
+- 🇧🇬 {data['bg']}
+- Category: {data['category']}
+- Risk Level: {data['risk']}/3
+- ℹ️ {data['info']}
+                """
+            )
+
+    if harmful_found:
+        st.subheader("🚨 Harmful Ingredients")
+        for item in sorted(harmful_found):
+            data = HARMFUL_INGREDIENTS[item]
+            color = risk_color(data["risk"])
+            st.markdown(
+                f"""
+{color} **{item.title()}**
+- Risk Level: {data['risk']}/3
+- ℹ️ {data['info']}
+                """
+            )
+
+    if allergens_found:
+        st.subheader("🥜 Allergens")
+        for allergen in sorted(allergens_found):
+            st.warning(f"⚠️ {allergen}")
+
+    if not found_ingredients and not harmful_found and not allergens_found:
+        st.success("✅ No dangerous ingredients detected.")
+
+    st.markdown("---")
+    st.caption("AI Ingredient Scanner • BG + EN OCR")
+
+if __name__ == "__main__":
+    main()
