@@ -41,6 +41,9 @@ INGREDIENT_DB = [
         ],
         "reason": "Very alkaline water may reduce stomach acidity and affect digestion."
     },
+
+
+    
     {
         "name": "Sodium / High Sodium (Na⁺)",
         "risk_level": "WARNING",
@@ -134,7 +137,7 @@ def match_ingredients(ocr_text):
                     found.append(entry)
                     seen.add(entry["name"])
 
-    fluoride_match = re.search(r"f[^0-9]{0,5}(\d+[\.,]?\d*)", text_lower)
+    fluoride_match = re.search(r"f[^\d]{0,10}(\d+[\.,]?\d*)", text_lower)
     if fluoride_match:
         value = float(fluoride_match.group(1).replace(",", "."))
         if value > 1.5 and "Fluoride (F⁻)" not in seen:
