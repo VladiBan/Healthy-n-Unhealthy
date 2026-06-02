@@ -1,6 +1,6 @@
+
 streamlit
 easyocr
 pillow
 numpy
 torch
-opencv-python
