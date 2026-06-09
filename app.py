@@ -229,11 +229,10 @@ if uploaded:
     image = Image.open(uploaded)
 
     st.image(
-        image,
-        caption="Качена снимка",
-        use_container_width=True
-    )
-
+    image,
+    caption="Качена снимка",
+    width="stretch"
+)
     processed = preprocess_image(image)
 
     with st.spinner("Сканиране..."):
